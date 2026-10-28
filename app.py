@@ -1,5 +1,8 @@
 import streamlit as st
 import pdfplumber
+import pypdfium2 as pdfium
+import pytesseract
+from PIL import Image
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 import re
@@ -21,28 +24,44 @@ with col_input1:
 with col_input2:
     uploaded_file = st.file_uploader("Apna Resume upload karein (PDF)", type=["pdf"])
 
-# pdfplumber se robust extraction (Canva/complex resume support)
+# Dual-Engine Extractor: Digital Text + Fallback OCR
 def extract_pdf_text(file):
+    text = ""
+    # Method 1: Direct digital text extraction
     try:
-        text = ""
         with pdfplumber.open(file) as pdf:
             for page in pdf.pages:
                 extracted = page.extract_text()
                 if extracted:
                     text += extracted + " "
-        return text.strip()
     except Exception:
-        return ""
+        pass
+        
+    text = text.strip()
+    
+    # Method 2: Fallback to OCR if direct extraction fails (for scanned/photo PDFs)
+    if not text:
+        try:
+            file.seek(0)
+            pdf = pdfium.PdfDocument(file.read())
+            ocr_text = ""
+            for page_index in range(len(pdf)):
+                page = pdf[page_index]
+                image = page.render(scale=2).to_pil()
+                ocr_text += pytesseract.image_to_string(image) + " "
+            text = ocr_text.strip()
+        except Exception:
+            text = ""
+            
+    return text
 
 def clean_text(text):
     return re.sub(r'[^a-zA-Z0-9\s]', ' ', text).lower()
 
 def match_skill(skill, text):
-    # Strict word boundary taaki 'r' ya 'c' kisi aur word ke andar match na ho
     pattern = r'(?<!\w)' + re.escape(skill) + r'(?!\w)'
     return bool(re.search(pattern, text))
 
-# Single-letter 'r' ko hata diya gaya hai taaki 'developer' jaise words se false trigger na ho
 COMPREHENSIVE_SKILLS = [
     # Data Science & Analytics
     "python", "sql", "mysql", "postgresql", "mongodb", "pandas", "numpy", 
@@ -66,11 +85,11 @@ if st.button("Analyze Resume", type="primary"):
     elif uploaded_file is None:
         st.warning("Kripya apna Resume PDF upload karein!")
     else:
-        resume_text = extract_pdf_text(uploaded_file)
+        with st.spinner("Resume process ho raha hai (Scanned hone par OCR scan chalega)..."):
+            resume_text = extract_pdf_text(uploaded_file)
         
-        # User ko alert dena agar resume se koi text extract na ho paya ho
         if not resume_text:
-            st.error("Is PDF se text read nahi ho saka! Agar resume scanned image ya photo hai, toh text-based PDF upload karein.")
+            st.error("Is PDF se text identify nahi ho saka. Kripya file check karein.")
         else:
             # 1. Text Normalization
             resume_clean = clean_text(resume_text)
@@ -133,5 +152,5 @@ if st.button("Analyze Resume", type="primary"):
                     st.write("Badhiya! Job Description ki sabhi identified skills resume mein hain.")
             
             # Debug tool: Extracted text preview
-            with st.expander("Resume se extract hua text dekhein (Debug)"):
+            with st.expander("Resume se extract hua text dekhein (Debug Preview)"):
                 st.write(resume_text)
