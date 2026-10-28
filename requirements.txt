@@ -1,4 +1,7 @@
 streamlit
 pdfplumber
+pypdfium2
+pytesseract
+Pillow
 scikit-learn
 numpy<2.0.0
